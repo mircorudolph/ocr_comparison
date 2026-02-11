@@ -1,0 +1,86 @@
+# OCR Comparison
+
+Minimal benchmark harness to compare PDF -> Markdown extraction across providers using a shared contract and common output format.
+
+## What it does
+
+- Reads PDFs from `sample_pdfs/`
+- Runs one or more providers (Mistral first)
+- Saves markdown outputs under `output/<provider>/`
+- Appends benchmark lines to `output/metrics.txt`
+
+## Install
+
+### UV (recommended)
+
+From project root:
+
+```bash
+uv init
+uv add mistralai
+uv add --dev pytest
+```
+
+If you want to add more providers later, install their SDKs similarly with `uv add ...`.
+
+````
+
+## Environment variables
+
+Copy `.env.example` to `.env` and set values:
+
+- `MISTRAL_API_KEY`: Required for Mistral OCR.
+- `MISTRAL_OCR_MODEL`: Optional, defaults to `mistral-ocr-latest`.
+- `LOG_LEVEL`: Optional logging level (`INFO` by default).
+
+## Run locally
+
+Place PDF files in `sample_pdfs/`, then run:
+
+```bash
+python -m main --providers mistral --input-dir sample_pdfs --output-dir output
+````
+
+Multiple providers (when implemented):
+
+```bash
+python -m main --providers mistral,openai,gemini,marker
+```
+
+## Output layout
+
+```text
+output/
+  mistral/
+    <pdf_name>.md
+  openai/
+  gemini/
+  marker/
+  metrics.txt
+```
+
+`metrics.txt` is append-only and line-based, for example:
+
+```text
+provider=mistral pdf=invoice.pdf time=2.300s tokens=1234 cost=n/a model=mistral-ocr-latest
+```
+
+## Run tests
+
+```bash
+pytest
+```
+
+## Docker
+
+Build image:
+
+```bash
+docker build -t ocr-comparison .
+```
+
+Run container:
+
+```bash
+docker run -it --rm --env-file .env -v "$(pwd)/sample_pdfs:/app/sample_pdfs" -v "$(pwd)/output:/app/output" ocr-comparison
+```

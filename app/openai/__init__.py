@@ -1,0 +1,1 @@
+"""OpenAI OCR provider integration."""
