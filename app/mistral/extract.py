@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+
+
 def _extract_pages_markdown(ocr_response: object) -> str:
     """Extract page markdown from a Mistral OCR response object."""
     pages = getattr(ocr_response, "pages", None)
@@ -32,12 +34,24 @@ def _extract_token_count(ocr_response: object) -> int | None:
     return int(tokens) if tokens is not None else None
 
 
+def _extract_page_count(ocr_response: object) -> int | None:
+    """Extract number of processed pages from OCR response."""
+    pages = getattr(ocr_response, "pages", None)
+    if pages is None:
+        return None
+    try:
+        return len(pages)
+    except TypeError:
+        return None
+
+
 def pdf_to_markdown(pdf_path: str) -> tuple[str, dict[str, object]]:
     """Convert a PDF to markdown using Mistral OCR API."""
     start = time.perf_counter()
     pdf = Path(pdf_path)
     api_key = os.getenv("MISTRAL_API_KEY", "").strip()
     model = os.getenv("MISTRAL_OCR_MODEL", "mistral-ocr-latest").strip()
+    usd_per_1000_pages = float(os.getenv("MISTRAL_USD_PER_1000_PAGES", "2"))
 
     if not api_key:
         raise RuntimeError("Missing MISTRAL_API_KEY environment variable.")
@@ -74,14 +88,20 @@ def pdf_to_markdown(pdf_path: str) -> tuple[str, dict[str, object]]:
     markdown = _extract_pages_markdown(ocr_response)
     duration_sec = time.perf_counter() - start
     tokens = _extract_token_count(ocr_response)
+    page_count = _extract_page_count(ocr_response)
 
     metrics: dict[str, object] = {
         "provider": "mistral",
         "model": model,
         "duration_sec": round(duration_sec, 3),
     }
+    if page_count is not None:
+        metrics["pages"] = page_count
     if tokens is not None:
         metrics["tokens"] = tokens
+    if page_count is not None:
+        estimated_cost = (page_count / 1000.0) * usd_per_1000_pages
+        metrics["estimated_cost"] = round(estimated_cost, 6)
 
     return markdown, metrics
 

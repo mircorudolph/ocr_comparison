@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 .env
 output/*.txt
-output/*/*.md
+output/**/*.md
+output/runs/**/*.txt

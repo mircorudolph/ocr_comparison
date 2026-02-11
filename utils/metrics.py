@@ -15,16 +15,20 @@ def timer() -> float:
 
 def format_metrics_line(pdf_name: str, metrics: dict[str, object]) -> str:
     """Format one metrics dict as an append-only single-line record."""
+    run_id = metrics.get("run_id")
     provider = str(metrics.get("provider", "unknown"))
     duration = metrics.get("duration_sec")
     duration_value = f"{float(duration):.3f}s" if duration is not None else "n/a"
+    pages = metrics.get("pages", "n/a")
     tokens = metrics.get("tokens", "n/a")
+    credits = metrics.get("credits", "n/a")
     cost = metrics.get("estimated_cost", "n/a")
     model = metrics.get("model")
 
+    prefix = f"run={run_id} " if run_id is not None else ""
     line = (
-        f"provider={provider} pdf={pdf_name} "
-        f"time={duration_value} tokens={tokens} cost={cost}"
+        f"{prefix}provider={provider} pdf={pdf_name} "
+        f"time={duration_value} pages={pages} tokens={tokens} credits={credits} cost={cost}"
     )
     if model:
         line += f" model={model}"

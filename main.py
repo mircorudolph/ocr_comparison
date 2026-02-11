@@ -11,6 +11,7 @@ Inputs:
 - Env vars:
   - `MISTRAL_API_KEY`: API key for Mistral OCR.
   - `MISTRAL_OCR_MODEL`: Optional model name override (default: `mistral-ocr-latest`).
+  - `MISTRAL_USD_PER_1000_PAGES`: Optional price config for estimated cost (default: `2`).
   - `LANDING_AI_API_KEY`: API key for Landing AI ADE Parse.
   - `LANDING_AI_PARSE_URL`: Optional endpoint override (default: `https://api.va.landing.ai/v1/ade/parse`).
   - `LANDING_AI_MODEL`: Optional model override for ADE Parse.
@@ -19,8 +20,9 @@ Inputs:
   - `LOG_LEVEL`: Optional logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).
 
 Outputs:
-- Markdown files in `output/<provider>/<pdf_stem>.md`.
-- Append-only benchmark log at `output/metrics.txt`.
+- Run-scoped markdown files in `output/runs/<run_id>/<provider>/<pdf_stem>.md`.
+- Run-scoped metrics at `output/runs/<run_id>/metrics.txt`.
+- Append-only benchmark log at `output/metrics.txt` (all runs).
 
 Usage (from project root):
 - python -m main --providers mistral --input-dir sample_pdfs --output-dir output
@@ -31,8 +33,11 @@ from __future__ import annotations
 
 import argparse
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
+
+from dotenv import load_dotenv
 
 from app.gemini.extract import pdf_to_markdown as gemini_extract
 from app.landing_ai.extract import pdf_to_markdown as landing_ai_extract
@@ -105,7 +110,9 @@ def resolve_pdf_paths(input_dir: Path, input_file: str | None) -> list[Path]:
 
 def parse_provider_names(raw_providers: str) -> list[str]:
     """Validate selected provider names and return normalized provider list."""
-    requested = [item.strip().lower() for item in raw_providers.split(",") if item.strip()]
+    requested = [
+        item.strip().lower() for item in raw_providers.split(",") if item.strip()
+    ]
     if not requested:
         raise ValueError("No providers were selected. Pass at least one provider.")
     unknown = [name for name in requested if name not in PROVIDERS]
@@ -114,37 +121,58 @@ def parse_provider_names(raw_providers: str) -> list[str]:
     return requested
 
 
+def create_run_output_dir(output_dir: Path) -> tuple[str, Path]:
+    """Create and return a unique run directory id and path."""
+    runs_dir = output_dir / "runs"
+    ensure_dir(runs_dir)
+    base_run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = base_run_id
+    suffix = 1
+    while (runs_dir / run_id).exists():
+        run_id = f"{base_run_id}_{suffix:02d}"
+        suffix += 1
+    run_output_dir = runs_dir / run_id
+    ensure_dir(run_output_dir)
+    return run_id, run_output_dir
+
+
 def run_provider_for_pdf(
+    run_id: str,
     provider_name: str,
     provider_fn: ProviderFn,
     pdf_path: Path,
-    output_dir: Path,
-    metrics_path: Path,
+    run_output_dir: Path,
+    run_metrics_path: Path,
+    global_metrics_path: Path,
 ) -> None:
     """Run one provider for one PDF and persist markdown + metrics."""
     start = timer()
     try:
         markdown, metrics = provider_fn(str(pdf_path))
-        provider_output_dir = output_dir / provider_name
+        provider_output_dir = run_output_dir / provider_name
         ensure_dir(provider_output_dir)
         output_path = provider_output_dir / f"{pdf_path.stem}.md"
         save_markdown(output_path, markdown)
 
         metrics = dict(metrics)
+        metrics.setdefault("run_id", run_id)
         metrics.setdefault("provider", provider_name)
         metrics.setdefault("duration_sec", round(timer() - start, 3))
 
         line = format_metrics_line(pdf_path.name, metrics)
-        append_metrics(metrics_path, line)
+        append_metrics(run_metrics_path, line)
+        append_metrics(global_metrics_path, line)
         logger.info("Completed provider=%s pdf=%s", provider_name, pdf_path.name)
     except Exception as error:
         failed_metrics: dict[str, object] = {
+            "run_id": run_id,
             "provider": provider_name,
             "duration_sec": round(timer() - start, 3),
             "error": str(error),
         }
         line = format_metrics_line(pdf_path.name, failed_metrics)
-        append_metrics(metrics_path, f"{line} error={error}")
+        append_metrics(run_metrics_path, f"{line} error={error}")
+        append_metrics(global_metrics_path, f"{line} error={error}")
         logger.exception("Failed provider=%s pdf=%s", provider_name, pdf_path.name)
 
 
@@ -154,34 +182,44 @@ def main() -> None:
     project_root = Path(__file__).parent
     input_dir = project_root / args.input_dir
     output_dir = project_root / args.output_dir
-    metrics_path = output_dir / "metrics.txt"
+    global_metrics_path = output_dir / "metrics.txt"
     provider_names = parse_provider_names(args.providers)
 
     ensure_dir(output_dir)
+    run_id, run_output_dir = create_run_output_dir(output_dir)
+    run_metrics_path = run_output_dir / "metrics.txt"
     pdf_paths = resolve_pdf_paths(input_dir=input_dir, input_file=args.input_file)
     if not pdf_paths:
         logger.warning("No PDF files found in %s", input_dir)
         return
 
     logger.info(
-        "Starting benchmark with providers=%s pdf_count=%s",
+        "Starting benchmark run_id=%s providers=%s pdf_count=%s",
+        run_id,
         ",".join(provider_names),
         len(pdf_paths),
     )
     for pdf_path in pdf_paths:
         for provider_name in provider_names:
             run_provider_for_pdf(
+                run_id=run_id,
                 provider_name=provider_name,
                 provider_fn=PROVIDERS[provider_name],
                 pdf_path=pdf_path,
-                output_dir=output_dir,
-                metrics_path=metrics_path,
+                run_output_dir=run_output_dir,
+                run_metrics_path=run_metrics_path,
+                global_metrics_path=global_metrics_path,
             )
 
-    logger.info("Finished benchmark run. Metrics file: %s", metrics_path)
+    logger.info(
+        "Finished benchmark run_id=%s. Run metrics: %s. Global metrics: %s",
+        run_id,
+        run_metrics_path,
+        global_metrics_path,
+    )
 
 
 if __name__ == "__main__":
+    load_dotenv()
     setup_logger()
     main()
-

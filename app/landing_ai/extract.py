@@ -70,6 +70,9 @@ def pdf_to_markdown(pdf_path: str) -> tuple[str, dict[str, object]]:
         "model": model or metadata.get("version") or "default",
         "duration_sec": round(duration_sec, 3),
     }
+    page_count = metadata.get("page_count") if isinstance(metadata, dict) else None
+    if page_count is not None:
+        metrics["pages"] = page_count
 
     duration_ms = metadata.get("duration_ms") if isinstance(metadata, dict) else None
     duration_ms_float = _to_float(duration_ms)
