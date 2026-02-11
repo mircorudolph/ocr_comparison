@@ -4,12 +4,18 @@ Brief: Run PDF-to-Markdown extraction across multiple providers and save compara
 Inputs:
 - CLI args:
   - `--input-dir`: Directory containing source PDFs (default: `sample_pdfs`).
+  - `--input-file`: Optional single PDF filename inside `--input-dir` (example: `invoice.pdf`).
   - `--output-dir`: Directory where provider folders and `metrics.txt` are written (default: `output`).
-  - `--providers`: Comma-separated provider names to run. Supported: `mistral`, `openai`, `gemini`, `marker`.
+  - `--providers`: Comma-separated provider names to run. Supported: `mistral`, `landing_ai`, `openai`, `gemini`, `marker`.
 - Files/paths: Input directory is expected to contain `.pdf` files.
 - Env vars:
   - `MISTRAL_API_KEY`: API key for Mistral OCR.
   - `MISTRAL_OCR_MODEL`: Optional model name override (default: `mistral-ocr-latest`).
+  - `LANDING_AI_API_KEY`: API key for Landing AI ADE Parse.
+  - `LANDING_AI_PARSE_URL`: Optional endpoint override (default: `https://api.va.landing.ai/v1/ade/parse`).
+  - `LANDING_AI_MODEL`: Optional model override for ADE Parse.
+  - `LANDING_AI_SPLIT`: Optional split mode (for example: `page`).
+  - `LANDING_AI_CREDIT_TO_USD`: Optional conversion ratio to estimate cost from API credit usage.
   - `LOG_LEVEL`: Optional logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).
 
 Outputs:
@@ -18,6 +24,7 @@ Outputs:
 
 Usage (from project root):
 - python -m main --providers mistral --input-dir sample_pdfs --output-dir output
+- python -m main --providers mistral --input-file invoice.pdf
 """
 
 from __future__ import annotations
@@ -28,6 +35,7 @@ from pathlib import Path
 from typing import Callable
 
 from app.gemini.extract import pdf_to_markdown as gemini_extract
+from app.landing_ai.extract import pdf_to_markdown as landing_ai_extract
 from app.marker.extract import pdf_to_markdown as marker_extract
 from app.mistral.extract import pdf_to_markdown as mistral_extract
 from app.openai.extract import pdf_to_markdown as openai_extract
@@ -40,6 +48,7 @@ logger = logging.getLogger(__name__)
 ProviderFn = Callable[[str], tuple[str, dict[str, object]]]
 PROVIDERS: dict[str, ProviderFn] = {
     "mistral": mistral_extract,
+    "landing_ai": landing_ai_extract,
     "openai": openai_extract,
     "gemini": gemini_extract,
     "marker": marker_extract,
@@ -57,6 +66,11 @@ def parse_args() -> argparse.Namespace:
         help="Directory with input PDF files.",
     )
     parser.add_argument(
+        "--input-file",
+        default=None,
+        help="Optional PDF filename in --input-dir to run only one file (for example: invoice.pdf).",
+    )
+    parser.add_argument(
         "--output-dir",
         default="output",
         help="Directory for extracted markdown and metrics.",
@@ -64,7 +78,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--providers",
         default="mistral",
-        help="Comma-separated providers to run (mistral,openai,gemini,marker).",
+        help="Comma-separated providers to run (mistral,landing_ai,openai,gemini,marker).",
     )
     return parser.parse_args()
 
@@ -74,6 +88,19 @@ def list_pdfs(input_dir: Path) -> list[Path]:
     if not input_dir.exists():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
     return sorted(path for path in input_dir.iterdir() if path.suffix.lower() == ".pdf")
+
+
+def resolve_pdf_paths(input_dir: Path, input_file: str | None) -> list[Path]:
+    """Resolve either all PDFs in a folder or one selected PDF file."""
+    if not input_file:
+        return list_pdfs(input_dir)
+
+    selected_pdf = input_dir / input_file
+    if not selected_pdf.exists() or not selected_pdf.is_file():
+        raise FileNotFoundError(f"Input PDF does not exist: {selected_pdf}")
+    if selected_pdf.suffix.lower() != ".pdf":
+        raise ValueError(f"Input file must be a PDF: {selected_pdf.name}")
+    return [selected_pdf]
 
 
 def parse_provider_names(raw_providers: str) -> list[str]:
@@ -131,7 +158,7 @@ def main() -> None:
     provider_names = parse_provider_names(args.providers)
 
     ensure_dir(output_dir)
-    pdf_paths = list_pdfs(input_dir)
+    pdf_paths = resolve_pdf_paths(input_dir=input_dir, input_file=args.input_file)
     if not pdf_paths:
         logger.warning("No PDF files found in %s", input_dir)
         return

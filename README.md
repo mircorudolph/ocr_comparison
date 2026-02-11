@@ -18,12 +18,11 @@ From project root:
 ```bash
 uv init
 uv add mistralai
+uv add requests
 uv add --dev pytest
 ```
 
 If you want to add more providers later, install their SDKs similarly with `uv add ...`.
-
-````
 
 ## Environment variables
 
@@ -31,6 +30,11 @@ Copy `.env.example` to `.env` and set values:
 
 - `MISTRAL_API_KEY`: Required for Mistral OCR.
 - `MISTRAL_OCR_MODEL`: Optional, defaults to `mistral-ocr-latest`.
+- `LANDING_AI_API_KEY`: Required for Landing AI ADE Parse.
+- `LANDING_AI_PARSE_URL`: Optional endpoint override. Default: `https://api.va.landing.ai/v1/ade/parse`.
+- `LANDING_AI_MODEL`: Optional ADE Parse model override.
+- `LANDING_AI_SPLIT`: Optional split mode (`page`).
+- `LANDING_AI_CREDIT_TO_USD`: Optional conversion ratio for estimated cost.
 - `LOG_LEVEL`: Optional logging level (`INFO` by default).
 
 ## Run locally
@@ -39,12 +43,24 @@ Place PDF files in `sample_pdfs/`, then run:
 
 ```bash
 python -m main --providers mistral --input-dir sample_pdfs --output-dir output
-````
+```
 
-Multiple providers (when implemented):
+Run only one PDF from that folder:
 
 ```bash
-python -m main --providers mistral,openai,gemini,marker
+python -m main --providers mistral --input-dir sample_pdfs --input-file invoice.pdf
+```
+
+Run with Landing AI:
+
+```bash
+python -m main --providers landing_ai --input-dir sample_pdfs --output-dir output
+```
+
+Multiple providers:
+
+```bash
+python -m main --providers mistral,landing_ai,openai,gemini,marker
 ```
 
 ## Output layout
@@ -52,6 +68,8 @@ python -m main --providers mistral,openai,gemini,marker
 ```text
 output/
   mistral/
+    <pdf_name>.md
+  landing_ai/
     <pdf_name>.md
   openai/
   gemini/
@@ -63,6 +81,7 @@ output/
 
 ```text
 provider=mistral pdf=invoice.pdf time=2.300s tokens=1234 cost=n/a model=mistral-ocr-latest
+provider=landing_ai pdf=invoice.pdf time=1.842s tokens=n/a cost=n/a model=default
 ```
 
 ## Run tests

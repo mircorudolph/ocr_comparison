@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "mistralai>=1.12.1",
+    "requests>=2.32.5",
 ]
 
 [dependency-groups]
