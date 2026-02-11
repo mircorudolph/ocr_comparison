@@ -6,7 +6,7 @@ Minimal benchmark harness to compare PDF -> Markdown extraction across providers
 
 - Reads PDFs from `sample_pdfs/`
 - Runs one or more providers (Mistral first)
-- Saves markdown outputs under `output/runs/<run_id>/<provider>/`
+- Saves markdown outputs under `output/runs/<run_id>/` with provider/model-prefixed filenames
 - Writes run metrics to `output/runs/<run_id>/metrics.txt`
 - Appends benchmark lines to `output/metrics.txt` across all runs
 
@@ -41,6 +41,7 @@ Copy `.env.example` to `.env` and set values:
 - `LOG_LEVEL`: Optional logging level (`INFO` by default).
 
 The app auto-loads `.env` from project root when you run `python -m main`.
+Each run output includes a sidecar `.json` file with a `pdf_sha256` field.
 
 ## Run locally
 
@@ -74,13 +75,8 @@ python -m main --providers mistral,landing_ai,openai,gemini,marker
 output/
   runs/
     <run_id>/
-      mistral/
-        <pdf_name>.md
-      landing_ai/
-        <pdf_name>.md
-      openai/
-      gemini/
-      marker/
+      <provider>_<model>_<pdf_name>.md
+      <provider>_<model>_<pdf_name>.json
       metrics.txt
   metrics.txt
 ```

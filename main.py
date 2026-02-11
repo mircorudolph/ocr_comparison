@@ -20,7 +20,7 @@ Inputs:
   - `LOG_LEVEL`: Optional logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).
 
 Outputs:
-- Run-scoped markdown files in `output/runs/<run_id>/<provider>/<pdf_stem>.md`.
+- Run-scoped markdown files in `output/runs/<run_id>/<provider>_<model>_<pdf_stem>.md`.
 - Run-scoped metrics at `output/runs/<run_id>/metrics.txt`.
 - Append-only benchmark log at `output/metrics.txt` (all runs).
 
@@ -32,6 +32,8 @@ Usage (from project root):
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -136,6 +138,26 @@ def create_run_output_dir(output_dir: Path) -> tuple[str, Path]:
     return run_id, run_output_dir
 
 
+def sanitize_for_filename(value: str) -> str:
+    """Make a string safe for use in filenames."""
+    sanitized = value.strip().replace(" ", "_")
+    for char in ("/", "\\", ":", "*", "?", '"', "<", ">", "|"):
+        sanitized = sanitized.replace(char, "_")
+    while "__" in sanitized:
+        sanitized = sanitized.replace("__", "_")
+    sanitized = sanitized.strip("_")
+    return sanitized or "unknown"
+
+
+def sha256_file(path: Path) -> str:
+    """Compute SHA-256 hash of a file."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def run_provider_for_pdf(
     run_id: str,
     provider_name: str,
@@ -149,15 +171,28 @@ def run_provider_for_pdf(
     start = timer()
     try:
         markdown, metrics = provider_fn(str(pdf_path))
-        provider_output_dir = run_output_dir / provider_name
-        ensure_dir(provider_output_dir)
-        output_path = provider_output_dir / f"{pdf_path.stem}.md"
-        save_markdown(output_path, markdown)
-
         metrics = dict(metrics)
         metrics.setdefault("run_id", run_id)
         metrics.setdefault("provider", provider_name)
         metrics.setdefault("duration_sec", round(timer() - start, 3))
+
+        model_for_name = sanitize_for_filename(str(metrics.get("model", "unknown")))
+        output_stem = f"{provider_name}_{model_for_name}_{pdf_path.stem}"
+        output_path = run_output_dir / f"{output_stem}.md"
+        save_markdown(output_path, markdown)
+
+        sidecar: dict[str, object] = {
+            "run_id": run_id,
+            "provider": provider_name,
+            "model": metrics.get("model", "unknown"),
+            "pdf_name": pdf_path.name,
+            "pdf_sha256": sha256_file(pdf_path),
+            "output_markdown": output_path.name,
+            "metrics": metrics,
+        }
+
+        sidecar_path = run_output_dir / f"{output_stem}.json"
+        sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
 
         line = format_metrics_line(pdf_path.name, metrics)
         append_metrics(run_metrics_path, line)

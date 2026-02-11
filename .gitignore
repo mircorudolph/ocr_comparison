@@ -5,3 +5,4 @@ __pycache__/
 output/*.txt
 output/**/*.md
 output/runs/**/*.txt
+output/**/*.json
